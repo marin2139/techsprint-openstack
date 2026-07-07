@@ -16,15 +16,14 @@ provider "openstack" {
   insecure    = true
 }
 
-# SSH Key Pair
+# Get or create key pair - use existing if available
 resource "openstack_compute_keypair_v2" "techsprint" {
   name       = "techsprint-key"
   public_key = file("${path.module}/../ssh_key.pub")
-}
 
-# Get external network
-data "openstack_networking_network_v2" "external" {
-  name = "provider-storage"
+  lifecycle {
+    ignore_changes = [public_key]
+  }
 }
 
 # Create networks per developer
@@ -60,9 +59,8 @@ resource "openstack_networking_subnet_v2" "management" {
 
 # Router
 resource "openstack_networking_router_v2" "techsprint" {
-  name                = "router-techsprint"
-  admin_state_up      = true
-  external_network_id = data.openstack_networking_network_v2.external.id
+  name           = "router-techsprint"
+  admin_state_up = true
 }
 
 # Router interfaces
@@ -157,24 +155,17 @@ resource "openstack_compute_instance_v2" "bastion" {
   name            = "vm-bastion"
   image_name      = "rhe18"
   flavor_name     = "m1.medium"
-  key_pair        = openstack_compute_keypair_v2.techsprint.name
+  key_pair        = "techsprint-key"
   security_groups = ["sg-bastion"]
 
   network {
     uuid = openstack_networking_network_v2.management.id
   }
 
-  depends_on = [openstack_compute_secgroup_v2.bastion]
-}
-
-# Floating IP for Bastion
-resource "openstack_networking_floatingip_v2" "bastion" {
-  pool = data.openstack_networking_network_v2.external.name
-}
-
-resource "openstack_compute_floatingip_associate_v2" "bastion" {
-  floating_ip = openstack_networking_floatingip_v2.bastion.address
-  instance_id = openstack_compute_instance_v2.bastion.id
+  depends_on = [
+    openstack_compute_secgroup_v2.bastion,
+    openstack_networking_subnet_v2.management
+  ]
 }
 
 # Lead VMs
@@ -184,14 +175,17 @@ resource "openstack_compute_instance_v2" "lead" {
   name            = "vm-lead-${each.value}"
   image_name      = "rhe18"
   flavor_name     = "m1.medium"
-  key_pair        = openstack_compute_keypair_v2.techsprint.name
+  key_pair        = "techsprint-key"
   security_groups = ["sg-lead"]
 
   network {
     uuid = openstack_networking_network_v2.management.id
   }
 
-  depends_on = [openstack_compute_secgroup_v2.lead]
+  depends_on = [
+    openstack_compute_secgroup_v2.lead,
+    openstack_networking_subnet_v2.management
+  ]
 }
 
 # Moodle VMs
@@ -210,22 +204,21 @@ resource "openstack_compute_instance_v2" "moodle" {
   name            = "vm-moodle-${each.key}"
   image_name      = "rhe18"
   flavor_name     = "m1.large"
-  key_pair        = openstack_compute_keypair_v2.techsprint.name
+  key_pair        = "techsprint-key"
   security_groups = ["sg-dev-${each.value.dev_name}"]
 
   network {
     uuid = openstack_networking_network_v2.developer[each.value.dev_name].id
   }
 
-  depends_on = [openstack_compute_secgroup_v2.developer]
+  depends_on = [
+    openstack_compute_secgroup_v2.developer,
+    openstack_networking_subnet_v2.developer
+  ]
 }
 
 # Outputs
 output "bastion_ip" {
-  value = openstack_networking_floatingip_v2.bastion.address
-}
-
-output "bastion_internal_ip" {
   value = openstack_compute_instance_v2.bastion.access_ip_v4
 }
 
@@ -241,4 +234,45 @@ output "lead_instances" {
     for key, instance in openstack_compute_instance_v2.lead :
     key => instance.access_ip_v4
   }
+}
+
+output "deployment_info" {
+  value = <<EOF
+
+=== TechSprint OpenStack Deployment Summary ===
+
+Bastion VM: vm-bastion (${openstack_compute_instance_v2.bastion.access_ip_v4})
+
+Lead VMs:
+%{for name, instance in openstack_compute_instance_v2.lead~}
+  - ${name}: ${instance.access_ip_v4}
+%{endfor~}
+
+Moodle VMs:
+%{for name, instance in openstack_compute_instance_v2.moodle~}
+  - ${name}: ${instance.access_ip_v4}
+%{endfor~}
+
+Networks:
+%{for name in var.developers~}
+  - vnet-${name}
+%{endfor~}
+  - vnet-management
+
+Security Groups created:
+  - sg-bastion
+  - sg-lead
+%{for name in var.developers~}
+  - sg-dev-${name}
+%{endfor~}
+
+Router: router-techsprint
+
+Next steps:
+1. Access bastion: ssh -i ssh_key root@${openstack_compute_instance_v2.bastion.access_ip_v4}
+2. From bastion, access other VMs via internal IPs
+3. Configure Moodle on moodle VMs
+4. Run Ansible for automation
+
+EOF
 }
