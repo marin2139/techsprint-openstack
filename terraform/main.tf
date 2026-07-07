@@ -102,7 +102,7 @@ resource "openstack_compute_secgroup_v2" "developer" {
   for_each = toset(var.developers)
 
   name        = "sg-dev-${each.value}"
-  description = "Developer ${each.value} security group"
+  description = "Developer ${each.value}"
 
   rule {
     from_port   = 22
@@ -154,15 +154,17 @@ resource "openstack_compute_secgroup_v2" "lead" {
 
 # Bastion VM
 resource "openstack_compute_instance_v2" "bastion" {
-  name           = "vm-bastion"
-  image_name     = "rhe18"
-  flavor_name    = "m1.medium"
-  key_pair       = openstack_compute_keypair_v2.techsprint.name
-  security_group = openstack_compute_secgroup_v2.bastion.name
+  name            = "vm-bastion"
+  image_name      = "rhe18"
+  flavor_name     = "m1.medium"
+  key_pair        = openstack_compute_keypair_v2.techsprint.name
+  security_groups = ["sg-bastion"]
 
   network {
     uuid = openstack_networking_network_v2.management.id
   }
+
+  depends_on = [openstack_compute_secgroup_v2.bastion]
 }
 
 # Floating IP for Bastion
@@ -179,15 +181,17 @@ resource "openstack_compute_floatingip_associate_v2" "bastion" {
 resource "openstack_compute_instance_v2" "lead" {
   for_each = toset(var.leads)
 
-  name           = "vm-lead-${each.value}"
-  image_name     = "rhe18"
-  flavor_name    = "m1.medium"
-  key_pair       = openstack_compute_keypair_v2.techsprint.name
-  security_group = openstack_compute_secgroup_v2.lead.name
+  name            = "vm-lead-${each.value}"
+  image_name      = "rhe18"
+  flavor_name     = "m1.medium"
+  key_pair        = openstack_compute_keypair_v2.techsprint.name
+  security_groups = ["sg-lead"]
 
   network {
     uuid = openstack_networking_network_v2.management.id
   }
+
+  depends_on = [openstack_compute_secgroup_v2.lead]
 }
 
 # Moodle VMs
@@ -196,24 +200,24 @@ resource "openstack_compute_instance_v2" "moodle" {
     for dev in var.developers : {
       "${dev}-1" = {
         dev_name = dev
-        instance = 1
       }
       "${dev}-2" = {
         dev_name = dev
-        instance = 2
       }
     }
   ]...)
 
-  name           = "vm-moodle-${each.key}"
-  image_name     = "rhe18"
-  flavor_name    = "m1.large"
-  key_pair       = openstack_compute_keypair_v2.techsprint.name
-  security_group = openstack_compute_secgroup_v2.developer[each.value.dev_name].name
+  name            = "vm-moodle-${each.key}"
+  image_name      = "rhe18"
+  flavor_name     = "m1.large"
+  key_pair        = openstack_compute_keypair_v2.techsprint.name
+  security_groups = ["sg-dev-${each.value.dev_name}"]
 
   network {
     uuid = openstack_networking_network_v2.developer[each.value.dev_name].id
   }
+
+  depends_on = [openstack_compute_secgroup_v2.developer]
 }
 
 # Outputs
@@ -237,25 +241,4 @@ output "lead_instances" {
     for key, instance in openstack_compute_instance_v2.lead :
     key => instance.access_ip_v4
   }
-}
-
-output "ansible_inventory" {
-  value = <<EOF
-[bastion]
-bastion ansible_host=${openstack_networking_floatingip_v2.bastion.address}
-
-[moodle]
-%{for key, instance in openstack_compute_instance_v2.moodle~}
-${key} ansible_host=${instance.access_ip_v4} ansible_user=root
-%{endfor~}
-
-[lead]
-%{for key, instance in openstack_compute_instance_v2.lead~}
-${key} ansible_host=${instance.access_ip_v4} ansible_user=root
-%{endfor~}
-
-[all:vars]
-ansible_ssh_private_key_file=../ssh_key
-ansible_ssh_common_args='-o StrictHostKeyChecking=no'
-EOF
 }
