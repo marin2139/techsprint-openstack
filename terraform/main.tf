@@ -2,7 +2,7 @@ terraform {
   required_providers {
     openstack = {
       source  = "terraform-provider-openstack/openstack"
-      version = "~> 1.54.0"
+      version = "~> 1.35.0"
     }
   }
 }
@@ -29,22 +29,22 @@ data "openstack_networking_network_v2" "external" {
   retrieve_all   = true
 }
 
+# Image data source
+data "openstack_images_image_v2" "rhe18" {
+  name        = "rhe18"
+  most_recent = true
+}
+
 # Create networks per developer
 resource "openstack_networking_network_v2" "developer" {
-  for_each = toset(var.developers)
-  
+  for_each       = toset(var.developers)
   name           = "vnet-${each.value}"
   admin_state_up = true
-  
-  tags = {
-    project     = "techsprint"
-    environment = "testing"
-  }
 }
 
 resource "openstack_networking_subnet_v2" "developer" {
   for_each = toset(var.developers)
-  
+
   name            = "subnet-${each.value}"
   network_id      = openstack_networking_network_v2.developer[each.value].id
   cidr            = "10.${100 + index(var.developers, each.value)}.0.0/24"
@@ -56,11 +56,6 @@ resource "openstack_networking_subnet_v2" "developer" {
 resource "openstack_networking_network_v2" "management" {
   name           = "vnet-management"
   admin_state_up = true
-  
-  tags = {
-    project     = "techsprint"
-    environment = "testing"
-  }
 }
 
 resource "openstack_networking_subnet_v2" "management" {
@@ -81,7 +76,7 @@ resource "openstack_networking_router_v2" "techsprint" {
 # Router interfaces for developer networks
 resource "openstack_networking_router_interface_v2" "developer" {
   for_each = toset(var.developers)
-  
+
   router_id = openstack_networking_router_v2.techsprint.id
   subnet_id = openstack_networking_subnet_v2.developer[each.value].id
 }
@@ -96,41 +91,37 @@ resource "openstack_networking_router_interface_v2" "management" {
 resource "openstack_compute_secgroup_v2" "bastion" {
   name        = "sg-bastion"
   description = "Security group for bastion/jump host"
-  
+
   rule {
     from_port   = 22
     to_port     = 22
     ip_protocol = "tcp"
     cidr        = "0.0.0.0/0"
   }
-  
+
   rule {
     from_port   = -1
     to_port     = -1
     ip_protocol = "icmp"
     cidr        = "0.0.0.0/0"
   }
-  
-  tags = {
-    project = "techsprint"
-  }
 }
 
 # Security Group for Developers
 resource "openstack_compute_secgroup_v2" "developer" {
   for_each = toset(var.developers)
-  
+
   name        = "sg-dev-${each.value}"
   description = "Security group for developer ${each.value}"
-  
+
   # SSH from bastion only
   rule {
     from_port       = 22
     to_port         = 22
     ip_protocol     = "tcp"
-    security_groups = [openstack_compute_secgroup_v2.bastion.id]
+    security_groups = [openstack_compute_secgroup_v2.bastion.name]
   }
-  
+
   # Moodle HTTP
   rule {
     from_port   = 80
@@ -138,7 +129,7 @@ resource "openstack_compute_secgroup_v2" "developer" {
     ip_protocol = "tcp"
     cidr        = "10.0.0.0/8"
   }
-  
+
   # Moodle HTTPS
   rule {
     from_port   = 443
@@ -146,17 +137,13 @@ resource "openstack_compute_secgroup_v2" "developer" {
     ip_protocol = "tcp"
     cidr        = "10.0.0.0/8"
   }
-  
+
   # Internal communication
   rule {
-    from_port       = -1
-    to_port         = -1
-    ip_protocol     = "icmp"
-    security_groups = [openstack_compute_secgroup_v2.bastion.id]
-  }
-  
-  tags = {
-    project = "techsprint"
+    from_port   = -1
+    to_port     = -1
+    ip_protocol = "icmp"
+    cidr        = "10.0.0.0/8"
   }
 }
 
@@ -164,24 +151,19 @@ resource "openstack_compute_secgroup_v2" "developer" {
 resource "openstack_compute_secgroup_v2" "lead" {
   name        = "sg-lead"
   description = "Security group for DevOps lead"
-  
-  # SSH from anywhere
+
   rule {
     from_port   = 22
     to_port     = 22
     ip_protocol = "tcp"
     cidr        = "0.0.0.0/0"
   }
-  
+
   rule {
     from_port   = -1
     to_port     = -1
     ip_protocol = "icmp"
     cidr        = "0.0.0.0/0"
-  }
-  
-  tags = {
-    project = "techsprint"
   }
 }
 
@@ -192,15 +174,9 @@ resource "openstack_compute_instance_v2" "bastion" {
   flavor_name     = "m1.medium"
   key_pair        = openstack_compute_keypair_v2.techsprint.name
   security_groups = [openstack_compute_secgroup_v2.bastion.name]
-  
+
   network {
     uuid = openstack_networking_network_v2.management.id
-  }
-  
-  tags = {
-    project     = "techsprint"
-    environment = "testing"
-    role        = "bastion"
   }
 }
 
@@ -217,21 +193,15 @@ resource "openstack_compute_floatingip_associate_v2" "bastion" {
 # DevOps Lead VM
 resource "openstack_compute_instance_v2" "lead" {
   for_each = toset(var.leads)
-  
+
   name            = "vm-lead-${each.value}"
   image_name      = "rhe18"
   flavor_name     = "m1.medium"
   key_pair        = openstack_compute_keypair_v2.techsprint.name
   security_groups = [openstack_compute_secgroup_v2.lead.name]
-  
+
   network {
     uuid = openstack_networking_network_v2.management.id
-  }
-  
-  tags = {
-    project     = "techsprint"
-    environment = "testing"
-    role        = "lead"
   }
 }
 
@@ -249,82 +219,16 @@ resource "openstack_compute_instance_v2" "moodle" {
       }
     }
   ]...)
-  
+
   name            = "vm-moodle-${each.key}"
   image_name      = "rhe18"
-  flavor_name     = "m1.large"  # 2 vCPU, 4GB RAM
+  flavor_name     = "m1.large"
   key_pair        = openstack_compute_keypair_v2.techsprint.name
   security_groups = [openstack_compute_secgroup_v2.developer[each.value.dev_name].name]
-  
+
   network {
     uuid = openstack_networking_network_v2.developer[each.value.dev_name].id
   }
-  
-  block_device {
-    uuid              = data.openstack_images_image_v2.rhe18.id
-    source_type       = "image"
-    volume_size       = 40
-    boot_index        = 0
-    destination_type  = "volume"
-    delete_on_termination = true
-  }
-  
-  tags = {
-    project     = "techsprint"
-    environment = "testing"
-    role        = "moodle"
-    developer   = each.value.dev_name
-  }
-}
-
-# Data volumes per Moodle instance
-resource "openstack_blockstorage_volume_v3" "moodle_data" {
-  for_each = merge([
-    for dev in var.developers : {
-      "${dev}-1" = {
-        dev_name = dev
-        instance = 1
-      }
-      "${dev}-2" = {
-        dev_name = dev
-        instance = 2
-      }
-    }
-  ]...)
-  
-  name        = "vol-moodle-data-${each.key}"
-  size        = 20
-  volume_type = "tripleo"
-  
-  tags = {
-    project     = "techsprint"
-    environment = "testing"
-  }
-}
-
-# Volume attachment
-resource "openstack_compute_volume_attach_v2" "moodle_data" {
-  for_each = merge([
-    for dev in var.developers : {
-      "${dev}-1" = {
-        dev_name = dev
-        instance = 1
-      }
-      "${dev}-2" = {
-        dev_name = dev
-        instance = 2
-      }
-    }
-  ]...)
-  
-  instance_id = openstack_compute_instance_v2.moodle[each.key].id
-  volume_id   = openstack_blockstorage_volume_v3.moodle_data[each.key].id
-}
-
-# Image data source
-data "openstack_images_image_v2" "rhe18" {
-  name = "rhe18"
-  most_recent = true
 }
 
 # Outputs
