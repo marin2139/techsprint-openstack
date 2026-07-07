@@ -22,17 +22,9 @@ resource "openstack_compute_keypair_v2" "techsprint" {
   public_key = file("${path.module}/../ssh_key.pub")
 }
 
-# External Network (existing)
+# Get external network
 data "openstack_networking_network_v2" "external" {
-  name           = "provider-storage"
-  external       = true
-  retrieve_all   = true
-}
-
-# Image data source
-data "openstack_images_image_v2" "rhe18" {
-  name        = "rhe18"
-  most_recent = true
+  name = "provider-storage"
 }
 
 # Create networks per developer
@@ -52,7 +44,7 @@ resource "openstack_networking_subnet_v2" "developer" {
   dns_nameservers = ["8.8.8.8", "8.8.4.4"]
 }
 
-# Network for bastion/lead (shared)
+# Management network
 resource "openstack_networking_network_v2" "management" {
   name           = "vnet-management"
   admin_state_up = true
@@ -73,7 +65,7 @@ resource "openstack_networking_router_v2" "techsprint" {
   external_network_id = data.openstack_networking_network_v2.external.id
 }
 
-# Router interfaces for developer networks
+# Router interfaces
 resource "openstack_networking_router_interface_v2" "developer" {
   for_each = toset(var.developers)
 
@@ -81,16 +73,15 @@ resource "openstack_networking_router_interface_v2" "developer" {
   subnet_id = openstack_networking_subnet_v2.developer[each.value].id
 }
 
-# Router interface for management network
 resource "openstack_networking_router_interface_v2" "management" {
   router_id = openstack_networking_router_v2.techsprint.id
   subnet_id = openstack_networking_subnet_v2.management.id
 }
 
-# Security Group for Bastion
+# Security Groups
 resource "openstack_compute_secgroup_v2" "bastion" {
   name        = "sg-bastion"
-  description = "Security group for bastion/jump host"
+  description = "Bastion security group"
 
   rule {
     from_port   = 22
@@ -107,50 +98,44 @@ resource "openstack_compute_secgroup_v2" "bastion" {
   }
 }
 
-# Security Group for Developers
 resource "openstack_compute_secgroup_v2" "developer" {
   for_each = toset(var.developers)
 
   name        = "sg-dev-${each.value}"
-  description = "Security group for developer ${each.value}"
+  description = "Developer ${each.value} security group"
 
-  # SSH from bastion only
   rule {
-    from_port       = 22
-    to_port         = 22
-    ip_protocol     = "tcp"
-    security_groups = [openstack_compute_secgroup_v2.bastion.name]
+    from_port   = 22
+    to_port     = 22
+    ip_protocol = "tcp"
+    cidr        = "0.0.0.0/0"
   }
 
-  # Moodle HTTP
   rule {
     from_port   = 80
     to_port     = 80
     ip_protocol = "tcp"
-    cidr        = "10.0.0.0/8"
+    cidr        = "0.0.0.0/0"
   }
 
-  # Moodle HTTPS
   rule {
     from_port   = 443
     to_port     = 443
     ip_protocol = "tcp"
-    cidr        = "10.0.0.0/8"
+    cidr        = "0.0.0.0/0"
   }
 
-  # Internal communication
   rule {
     from_port   = -1
     to_port     = -1
     ip_protocol = "icmp"
-    cidr        = "10.0.0.0/8"
+    cidr        = "0.0.0.0/0"
   }
 }
 
-# Security Group for Lead
 resource "openstack_compute_secgroup_v2" "lead" {
   name        = "sg-lead"
-  description = "Security group for DevOps lead"
+  description = "Lead security group"
 
   rule {
     from_port   = 22
@@ -169,11 +154,11 @@ resource "openstack_compute_secgroup_v2" "lead" {
 
 # Bastion VM
 resource "openstack_compute_instance_v2" "bastion" {
-  name            = "vm-bastion"
-  image_name      = "rhe18"
-  flavor_name     = "m1.medium"
-  key_pair        = openstack_compute_keypair_v2.techsprint.name
-  security_groups = [openstack_compute_secgroup_v2.bastion.name]
+  name           = "vm-bastion"
+  image_name     = "rhe18"
+  flavor_name    = "m1.medium"
+  key_pair       = openstack_compute_keypair_v2.techsprint.name
+  security_group = openstack_compute_secgroup_v2.bastion.name
 
   network {
     uuid = openstack_networking_network_v2.management.id
@@ -182,7 +167,7 @@ resource "openstack_compute_instance_v2" "bastion" {
 
 # Floating IP for Bastion
 resource "openstack_networking_floatingip_v2" "bastion" {
-  pool = "provider-storage"
+  pool = data.openstack_networking_network_v2.external.name
 }
 
 resource "openstack_compute_floatingip_associate_v2" "bastion" {
@@ -190,22 +175,22 @@ resource "openstack_compute_floatingip_associate_v2" "bastion" {
   instance_id = openstack_compute_instance_v2.bastion.id
 }
 
-# DevOps Lead VM
+# Lead VMs
 resource "openstack_compute_instance_v2" "lead" {
   for_each = toset(var.leads)
 
-  name            = "vm-lead-${each.value}"
-  image_name      = "rhe18"
-  flavor_name     = "m1.medium"
-  key_pair        = openstack_compute_keypair_v2.techsprint.name
-  security_groups = [openstack_compute_secgroup_v2.lead.name]
+  name           = "vm-lead-${each.value}"
+  image_name     = "rhe18"
+  flavor_name    = "m1.medium"
+  key_pair       = openstack_compute_keypair_v2.techsprint.name
+  security_group = openstack_compute_secgroup_v2.lead.name
 
   network {
     uuid = openstack_networking_network_v2.management.id
   }
 }
 
-# Moodle VMs per Developer
+# Moodle VMs
 resource "openstack_compute_instance_v2" "moodle" {
   for_each = merge([
     for dev in var.developers : {
@@ -220,11 +205,11 @@ resource "openstack_compute_instance_v2" "moodle" {
     }
   ]...)
 
-  name            = "vm-moodle-${each.key}"
-  image_name      = "rhe18"
-  flavor_name     = "m1.large"
-  key_pair        = openstack_compute_keypair_v2.techsprint.name
-  security_groups = [openstack_compute_secgroup_v2.developer[each.value.dev_name].name]
+  name           = "vm-moodle-${each.key}"
+  image_name     = "rhe18"
+  flavor_name    = "m1.large"
+  key_pair       = openstack_compute_keypair_v2.techsprint.name
+  security_group = openstack_compute_secgroup_v2.developer[each.value.dev_name].name
 
   network {
     uuid = openstack_networking_network_v2.developer[each.value.dev_name].id
@@ -233,13 +218,11 @@ resource "openstack_compute_instance_v2" "moodle" {
 
 # Outputs
 output "bastion_ip" {
-  value       = openstack_networking_floatingip_v2.bastion.address
-  description = "Bastion host floating IP"
+  value = openstack_networking_floatingip_v2.bastion.address
 }
 
 output "bastion_internal_ip" {
-  value       = openstack_compute_instance_v2.bastion.access_ip_v4
-  description = "Bastion internal IP"
+  value = openstack_compute_instance_v2.bastion.access_ip_v4
 }
 
 output "moodle_instances" {
@@ -247,7 +230,6 @@ output "moodle_instances" {
     for key, instance in openstack_compute_instance_v2.moodle :
     key => instance.access_ip_v4
   }
-  description = "Moodle instances IPs"
 }
 
 output "lead_instances" {
@@ -255,7 +237,6 @@ output "lead_instances" {
     for key, instance in openstack_compute_instance_v2.lead :
     key => instance.access_ip_v4
   }
-  description = "Lead instances"
 }
 
 output "ansible_inventory" {
@@ -277,5 +258,4 @@ ${key} ansible_host=${instance.access_ip_v4} ansible_user=root
 ansible_ssh_private_key_file=../ssh_key
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 EOF
-  description = "Ansible inventory"
 }
