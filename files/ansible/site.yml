@@ -1,0 +1,253 @@
+---
+- name: Configure TechSprint Infrastructure
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Update system packages
+      dnf:
+        name: "*"
+        state: latest
+      register: dnf_update
+      changed_when: dnf_update.changed
+
+    - name: Install basic tools
+      dnf:
+        name:
+          - git
+          - curl
+          - wget
+          - vim
+          - nano
+          - net-tools
+          - bind-utils
+        state: present
+
+    - name: Configure bastion host
+      block:
+        - name: Enable IP forwarding
+          sysctl:
+            name: net.ipv4.ip_forward
+            value: '1'
+            sysctl_set: yes
+
+        - name: Configure SSH for bastion
+          lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: "^#PermitRootLogin"
+            line: "PermitRootLogin yes"
+          notify: restart sshd
+
+        - name: Install HAProxy for load balancing
+          dnf:
+            name: haproxy
+            state: present
+          when: "'bastion' in group_names"
+
+      when: "'bastion' in group_names"
+
+    - name: Configure Moodle hosts
+      block:
+        - name: Install PHP and dependencies
+          dnf:
+            name:
+              - php
+              - php-cli
+              - php-pdo
+              - php-mysqlnd
+              - php-curl
+              - php-gd
+              - php-intl
+              - php-json
+              - php-ldap
+              - php-opcache
+              - php-spl
+              - php-xml
+              - php-zip
+              - mariadb-server
+              - mariadb
+              - httpd
+            state: present
+
+        - name: Create data directory
+          file:
+            path: /data
+            state: directory
+            mode: '0755'
+
+        - name: Format and mount data volume
+          block:
+            - name: Check if volume is already formatted
+              stat:
+                path: /dev/vdb
+              register: vdb_stat
+
+            - name: Create filesystem
+              filesystem:
+                fstype: ext4
+                dev: /dev/vdb
+              when: vdb_stat.stat.exists
+
+            - name: Mount data volume
+              mount:
+                path: /data
+                src: /dev/vdb
+                fstype: ext4
+                state: mounted
+          rescue:
+            - name: Data volume mount failed (expected if running on existing infra)
+              debug:
+                msg: "Volume mount skipped"
+
+        - name: Download Moodle
+          block:
+            - name: Create moodle directory
+              file:
+                path: /var/www/moodle
+                state: directory
+                mode: '0755'
+
+            - name: Clone Moodle from git
+              git:
+                repo: 'https://github.com/moodle/moodle.git'
+                dest: /var/www/moodle
+                version: master
+                depth: 1
+              ignore_errors: yes
+
+            - name: Create moodledata directory
+              file:
+                path: /data/moodledata
+                state: directory
+                owner: apache
+                group: apache
+                mode: '0770'
+
+        - name: Configure Apache for Moodle
+          block:
+            - name: Create Apache config for Moodle
+              copy:
+                content: |
+                  <VirtualHost *:80>
+                      DocumentRoot /var/www/moodle
+                      ServerName {{ ansible_hostname }}
+                      
+                      <Directory /var/www/moodle>
+                          Options Indexes FollowSymLinks MultiViews
+                          AllowOverride All
+                          Require all granted
+                      </Directory>
+                      
+                      ErrorLog /var/log/httpd/moodle_error.log
+                      CustomLog /var/log/httpd/moodle_access.log combined
+                  </VirtualHost>
+                dest: /etc/httpd/conf.d/moodle.conf
+              notify: restart apache
+
+            - name: Enable Apache
+              systemd:
+                name: httpd
+                enabled: yes
+                state: started
+
+        - name: Configure MariaDB
+          block:
+            - name: Enable MariaDB
+              systemd:
+                name: mariadb
+                enabled: yes
+                state: started
+
+            - name: Create Moodle database
+              mysql_db:
+                name: moodle
+                state: present
+              ignore_errors: yes
+
+            - name: Create Moodle database user
+              mysql_user:
+                name: moodleuser
+                password: "moodle{{ ansible_hostname | hash('md5') | truncate(6, True, '') }}"
+                priv: 'moodle.*:ALL'
+                state: present
+              ignore_errors: yes
+
+      when: "'moodle' in group_names"
+
+    - name: Configure Lead host
+      block:
+        - name: Install admin tools
+          dnf:
+            name:
+              - openstack-cli
+              - ansible
+              - terraform
+            state: present
+          ignore_errors: yes
+
+        - name: Setup SSH keys for lead
+          block:
+            - name: Create .ssh directory
+              file:
+                path: /root/.ssh
+                state: directory
+                mode: '0700'
+
+            - name: Add authorized_keys
+              copy:
+                content: "{{ lookup('file', '../ssh_key.pub') }}"
+                dest: /root/.ssh/authorized_keys
+                mode: '0600'
+              ignore_errors: yes
+
+      when: "'lead' in group_names"
+
+  handlers:
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted
+
+    - name: restart apache
+      systemd:
+        name: httpd
+        state: restarted
+
+- name: Post-deployment configuration
+  hosts: all
+  gather_facts: yes
+  tasks:
+    - name: Set system hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Configure firewall
+      systemd:
+        name: firewalld
+        enabled: yes
+        state: started
+      ignore_errors: yes
+
+    - name: Allow SSH through firewall
+      firewalld:
+        service: ssh
+        permanent: yes
+        state: enabled
+      ignore_errors: yes
+
+    - name: Allow HTTP through firewall
+      firewalld:
+        service: http
+        permanent: yes
+        state: enabled
+      when: "'moodle' in group_names"
+      ignore_errors: yes
+
+    - name: Allow HTTPS through firewall
+      firewalld:
+        service: https
+        permanent: yes
+        state: enabled
+      when: "'moodle' in group_names"
+      ignore_errors: yes
