@@ -16,25 +16,23 @@ provider "openstack" {
   insecure    = true
 }
 
-# Bastion VM - use default security group
 resource "openstack_compute_instance_v2" "bastion" {
   name            = "vm-bastion"
   image_name      = "octavia-amphora-16.1-20200812.3.x86_64"
-  flavor_name     = "m1.medium"
+  flavor_name     = "default"
   security_groups = ["default"]
+  network { uuid = "4beb2534-efb5-44b7-b6e4-aa098b0c2f9e" }
 }
 
-# Lead VMs
 resource "openstack_compute_instance_v2" "lead" {
-  for_each = toset(var.leads)
-
+  for_each        = toset(var.leads)
   name            = "vm-lead-${each.value}"
   image_name      = "octavia-amphora-16.1-20200812.3.x86_64"
-  flavor_name     = "m1.medium"
+  flavor_name     = "default"
   security_groups = ["default"]
+  network { uuid = "4beb2534-efb5-44b7-b6e4-aa098b0c2f9e" }
 }
 
-# Moodle VMs
 resource "openstack_compute_instance_v2" "moodle" {
   for_each = merge([
     for dev in var.developers : {
@@ -42,26 +40,11 @@ resource "openstack_compute_instance_v2" "moodle" {
       "${dev}-2" = { dev_name = dev }
     }
   ]...)
-
   name            = "vm-moodle-${each.key}"
   image_name      = "octavia-amphora-16.1-20200812.3.x86_64"
-  flavor_name     = "m1.large"
+  flavor_name     = "default-extra-disk"
   security_groups = ["default"]
+  network { uuid = "4beb2534-efb5-44b7-b6e4-aa098b0c2f9e" }
 }
 
-# Outputs
-output "deployment_info" {
-  value = "Deployment complete. Run: openstack server list"
-}
-
-output "bastion" {
-  value = openstack_compute_instance_v2.bastion.name
-}
-
-output "leads" {
-  value = [for k in openstack_compute_instance_v2.lead : k.name]
-}
-
-output "moodles" {
-  value = [for k in openstack_compute_instance_v2.moodle : k.name]
-}
+output "done" { value = "Deployment complete" }
