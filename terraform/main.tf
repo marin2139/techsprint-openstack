@@ -16,41 +16,12 @@ provider "openstack" {
   insecure    = true
 }
 
-# Single security group - allow all for testing
-resource "openstack_compute_secgroup_v2" "default" {
-  name        = "sg-techsprint"
-  description = "TechSprint default SG"
-
-  rule {
-    from_port   = 1
-    to_port     = 65535
-    ip_protocol = "tcp"
-    cidr        = "0.0.0.0/0"
-  }
-
-  rule {
-    from_port   = 1
-    to_port     = 65535
-    ip_protocol = "udp"
-    cidr        = "0.0.0.0/0"
-  }
-
-  rule {
-    from_port   = -1
-    to_port     = -1
-    ip_protocol = "icmp"
-    cidr        = "0.0.0.0/0"
-  }
-}
-
-# Bastion VM only
+# Bastion VM - use default security group
 resource "openstack_compute_instance_v2" "bastion" {
   name            = "vm-bastion"
   image_name      = "octavia-amphora-16.1-20200812.3.x86_64"
   flavor_name     = "m1.medium"
-  security_groups = ["sg-techsprint"]
-
-  depends_on = [openstack_compute_secgroup_v2.default]
+  security_groups = ["default"]
 }
 
 # Lead VMs
@@ -60,9 +31,7 @@ resource "openstack_compute_instance_v2" "lead" {
   name            = "vm-lead-${each.value}"
   image_name      = "octavia-amphora-16.1-20200812.3.x86_64"
   flavor_name     = "m1.medium"
-  security_groups = ["sg-techsprint"]
-
-  depends_on = [openstack_compute_secgroup_v2.default]
+  security_groups = ["default"]
 }
 
 # Moodle VMs
@@ -77,12 +46,22 @@ resource "openstack_compute_instance_v2" "moodle" {
   name            = "vm-moodle-${each.key}"
   image_name      = "octavia-amphora-16.1-20200812.3.x86_64"
   flavor_name     = "m1.large"
-  security_groups = ["sg-techsprint"]
-
-  depends_on = [openstack_compute_secgroup_v2.default]
+  security_groups = ["default"]
 }
 
 # Outputs
-output "summary" {
-  value = "Deployment complete. Check 'openstack server list'"
+output "deployment_info" {
+  value = "Deployment complete. Run: openstack server list"
+}
+
+output "bastion" {
+  value = openstack_compute_instance_v2.bastion.name
+}
+
+output "leads" {
+  value = [for k in openstack_compute_instance_v2.lead : k.name]
+}
+
+output "moodles" {
+  value = [for k in openstack_compute_instance_v2.moodle : k.name]
 }
