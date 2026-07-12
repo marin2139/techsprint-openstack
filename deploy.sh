@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set +e
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -176,13 +176,14 @@ echo ""
 # ============================================================
 echo -e "${YELLOW}[5/7] Creating VMs...${NC}"
 
-# Determine which SG to use (fallback to default if custom ones failed)
-BASTION_SG="sg-bastion"
-openstack security group show sg-bastion > /dev/null 2>&1 || BASTION_SG="default"
-DEV_SG="sg-developer"
-openstack security group show sg-developer > /dev/null 2>&1 || DEV_SG="default"
-LEAD_SG="sg-lead"
-openstack security group show sg-lead > /dev/null 2>&1 || LEAD_SG="default"
+# Determine which SG to use
+# Get our project's default SG ID as fallback (avoids "more than one" error)
+DEFAULT_SG_ID=$(openstack security group list --project $(openstack project show -f value -c id admin 2>/dev/null || echo "admin") -f value -c ID -c Name 2>/dev/null | grep "default" | head -1 | awk '{print $1}')
+[ -z "$DEFAULT_SG_ID" ] && DEFAULT_SG_ID="default"
+
+BASTION_SG=$(openstack security group show sg-bastion -f value -c id 2>/dev/null || echo "$DEFAULT_SG_ID")
+DEV_SG=$(openstack security group show sg-developer -f value -c id 2>/dev/null || echo "$DEFAULT_SG_ID")
+LEAD_SG=$(openstack security group show sg-lead -f value -c id 2>/dev/null || echo "$DEFAULT_SG_ID")
 
 # Bastion VM
 openstack server show vm-bastion > /dev/null 2>&1 || {
