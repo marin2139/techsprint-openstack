@@ -189,9 +189,9 @@ openstack server show vm-bastion > /dev/null 2>&1 || {
     openstack server create vm-bastion \
         --image "$IMAGE_NAME" \
         --flavor "$FLAVOR_BASTION" \
-        --network "$NETWORK_ID" \
+        --nic net-id="$NETWORK_ID" \
         --security-group "$BASTION_SG" \
-        --wait 2>/dev/null && \
+        --wait 2>&1 && \
     echo -e "  ${GREEN}VM: vm-bastion (bastion/jump host)${NC}"
 } || echo -e "  ${YELLOW}vm-bastion exists${NC}"
 
@@ -202,9 +202,9 @@ for lead in "${LEADS[@]}"; do
         openstack server create "$vm_name" \
             --image "$IMAGE_NAME" \
             --flavor "$FLAVOR_BASTION" \
-            --network "$NETWORK_ID" \
+            --nic net-id="$NETWORK_ID" \
             --security-group "$LEAD_SG" \
-            --wait 2>/dev/null && \
+            --wait 2>&1 && \
         echo -e "  ${GREEN}VM: $vm_name (DevOps Lead)${NC}"
     } || echo -e "  ${YELLOW}$vm_name exists${NC}"
 done
@@ -217,9 +217,9 @@ for dev in "${DEVELOPERS[@]}"; do
             openstack server create "$vm_name" \
                 --image "$IMAGE_NAME" \
                 --flavor "$FLAVOR_MOODLE" \
-                --network "$NETWORK_ID" \
+                --nic net-id="$NETWORK_ID" \
                 --security-group "$DEV_SG" \
-                --wait 2>/dev/null && \
+                --wait 2>&1 && \
             echo -e "  ${GREEN}VM: $vm_name (Moodle instance $i)${NC}"
         } || echo -e "  ${YELLOW}$vm_name exists${NC}"
     done
