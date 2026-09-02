@@ -1,0 +1,43 @@
+---
+- name: Set system hostname
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Update system packages
+  dnf:
+    name: "*"
+    state: latest
+
+- name: Install base tools
+  dnf:
+    name:
+      - git
+      - curl
+      - wget
+      - vim
+      - nano
+      - net-tools
+      - bind-utils
+      - python3-pip
+    state: present
+
+- name: Enable and start firewalld
+  systemd:
+    name: firewalld
+    enabled: true
+    state: started
+  ignore_errors: true
+
+- name: Allow SSH through firewall
+  firewalld:
+    service: ssh
+    permanent: true
+    state: enabled
+    immediate: true
+  ignore_errors: true
+
+- name: Install python3-openstackclient for Swift CLI
+  pip:
+    name: python-openstackclient
+    state: present
+  ignore_errors: true

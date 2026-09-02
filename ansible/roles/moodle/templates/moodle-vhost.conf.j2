@@ -1,0 +1,13 @@
+<VirtualHost *:80>
+    DocumentRoot /var/www/moodle
+    ServerName {{ ansible_hostname }}
+
+    <Directory /var/www/moodle>
+        Options FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog  /var/log/httpd/moodle_error.log
+    CustomLog /var/log/httpd/moodle_access.log combined
+</VirtualHost>

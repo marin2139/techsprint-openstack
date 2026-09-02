@@ -1,0 +1,22 @@
+---
+- name: Enable IP forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_set: true
+    reload: true
+
+- name: Harden SSH — disable root login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PermitRootLogin"
+    line: "PermitRootLogin no"
+  notify: restart sshd
+
+- name: Distribute SSH private key for jump access
+  copy:
+    src: "{{ playbook_dir }}/../ssh_key"
+    dest: /home/cloud-user/.ssh/id_rsa
+    owner: cloud-user
+    group: cloud-user
+    mode: "0600"

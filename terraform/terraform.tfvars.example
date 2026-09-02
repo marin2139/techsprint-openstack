@@ -1,0 +1,39 @@
+# ──────────────────────────────────────────────
+# Copy this file to terraform.tfvars and fill in
+# ──────────────────────────────────────────────
+
+# Provider auth
+openstack_auth_url = "https://<undercloud>:13000/v3"
+openstack_region   = "regionOne"
+admin_username     = "admin"
+admin_password     = "CHANGE_ME"
+admin_project      = "admin"
+admin_domain       = "Default"
+
+# External/provider network UUID (for floating IPs + router gateway)
+external_network_id = "4beb2534-efb5-44b7-b6e4-aa098b0c2f9e"
+
+# Image — use a proper CentOS/RHEL image, NOT octavia-amphora
+image_name = "centos8-stream"
+
+# Flavors — moodle needs ≥4 GB RAM
+flavor_bastion = "m1.small"
+flavor_moodle  = "m1.medium"
+
+# Users (from CSV)
+developers = ["luka_lukic", "marko_marinkovic"]
+leads      = ["ana_anic"]
+
+default_user_password = "TechSprint2026!"
+
+# Networking
+mgmt_cidr        = "10.0.0.0/24"
+dev_cidr_prefix  = 100
+
+# Storage
+cinder_volume_size    = 10
+manila_share_size     = 5
+manila_share_protocol = "NFS"
+
+# SSH
+ssh_public_key_path = "../ssh_key.pub"

@@ -1,0 +1,147 @@
+---
+# ================================================================
+# Moodle VM configuration
+# - Format & mount Cinder data volume
+# - Install PHP, Apache, MariaDB
+# - Deploy Moodle
+# ================================================================
+
+# ──────────────────────────────────────────────
+# 1. Cinder volume — format & mount
+# ──────────────────────────────────────────────
+- name: Wait for data volume device
+  wait_for:
+    path: /dev/vdb
+    timeout: 60
+  ignore_errors: true
+
+- name: Create filesystem on data volume
+  filesystem:
+    fstype: ext4
+    dev: /dev/vdb
+  when: ansible_devices.vdb is defined
+  ignore_errors: true
+
+- name: Create /data mount point
+  file:
+    path: /data
+    state: directory
+    mode: "0755"
+
+- name: Mount Cinder data volume
+  mount:
+    path: /data
+    src: /dev/vdb
+    fstype: ext4
+    state: mounted
+    opts: defaults,nofail
+  when: ansible_devices.vdb is defined
+  ignore_errors: true
+
+# ──────────────────────────────────────────────
+# 2. Install packages
+# ──────────────────────────────────────────────
+- name: Install PHP and web stack
+  dnf:
+    name:
+      - php
+      - php-cli
+      - php-pdo
+      - php-mysqlnd
+      - php-curl
+      - php-gd
+      - php-intl
+      - php-ldap
+      - php-opcache
+      - php-xml
+      - php-zip
+      - php-soap
+      - php-xmlrpc
+      - php-mbstring
+      - mariadb-server
+      - mariadb
+      - httpd
+      - mod_ssl
+    state: present
+
+# ──────────────────────────────────────────────
+# 3. Moodle application
+# ──────────────────────────────────────────────
+- name: Create Moodle web directory
+  file:
+    path: /var/www/moodle
+    state: directory
+    owner: apache
+    group: apache
+    mode: "0755"
+
+- name: Clone Moodle (stable branch)
+  git:
+    repo: "https://github.com/moodle/moodle.git"
+    dest: /var/www/moodle
+    version: MOODLE_404_STABLE
+    depth: 1
+  ignore_errors: true
+
+- name: Create moodledata on data volume
+  file:
+    path: /data/moodledata
+    state: directory
+    owner: apache
+    group: apache
+    mode: "0770"
+
+# ──────────────────────────────────────────────
+# 4. Apache config
+# ──────────────────────────────────────────────
+- name: Deploy Apache vhost for Moodle
+  template:
+    src: moodle-vhost.conf.j2
+    dest: /etc/httpd/conf.d/moodle.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart apache
+
+- name: Enable and start Apache
+  systemd:
+    name: httpd
+    enabled: true
+    state: started
+
+# ──────────────────────────────────────────────
+# 5. MariaDB
+# ──────────────────────────────────────────────
+- name: Enable and start MariaDB
+  systemd:
+    name: mariadb
+    enabled: true
+    state: started
+
+- name: Create Moodle database
+  mysql_db:
+    name: moodle
+    state: present
+  ignore_errors: true
+
+- name: Create Moodle database user
+  mysql_user:
+    name: moodleuser
+    password: "moodle{{ inventory_hostname | hash('md5') | truncate(8, True, '') }}"
+    priv: "moodle.*:ALL"
+    state: present
+  ignore_errors: true
+
+# ──────────────────────────────────────────────
+# 6. Firewall
+# ──────────────────────────────────────────────
+- name: Allow HTTP/HTTPS through firewall
+  firewalld:
+    service: "{{ item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop:
+    - http
+    - https
+  ignore_errors: true

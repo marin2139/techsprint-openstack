@@ -1,0 +1,65 @@
+---
+- name: Install admin tools
+  dnf:
+    name:
+      - ansible
+    state: present
+  ignore_errors: true
+
+- name: Install OpenStack CLI via pip
+  pip:
+    name:
+      - python-openstackclient
+      - python-octaviaclient
+      - python-manilaclient
+      - python-swiftclient
+    state: present
+  ignore_errors: true
+
+- name: Create .ssh directory for cloud-user
+  file:
+    path: /home/cloud-user/.ssh
+    state: directory
+    owner: cloud-user
+    group: cloud-user
+    mode: "0700"
+
+- name: Deploy SSH private key (for access to all VMs)
+  copy:
+    src: "{{ playbook_dir }}/../ssh_key"
+    dest: /home/cloud-user/.ssh/id_rsa
+    owner: cloud-user
+    group: cloud-user
+    mode: "0600"
+
+- name: Deploy SSH public key
+  copy:
+    src: "{{ playbook_dir }}/../ssh_key.pub"
+    dest: /home/cloud-user/.ssh/id_rsa.pub
+    owner: cloud-user
+    group: cloud-user
+    mode: "0644"
+
+- name: Configure SSH to skip host key checking for internal nets
+  copy:
+    content: |
+      Host 10.*
+        StrictHostKeyChecking no
+        UserKnownHostsFile /dev/null
+        User cloud-user
+        IdentityFile ~/.ssh/id_rsa
+    dest: /home/cloud-user/.ssh/config
+    owner: cloud-user
+    group: cloud-user
+    mode: "0600"
+
+- name: Allow HTTP/HTTPS through firewall (for admin panel access)
+  firewalld:
+    service: "{{ item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop:
+    - http
+    - https
+  ignore_errors: true

@@ -1,50 +1,45 @@
 terraform {
+  required_version = ">= 1.3.0"
+
   required_providers {
     openstack = {
       source  = "terraform-provider-openstack/openstack"
-      version = "~> 1.35.0"
+      version = "~> 1.54"
     }
   }
 }
 
+# ──────────────────────────────────────────────
+# Provider — authenticates as admin to manage
+# cross-project resources (identity, quotas).
+# ──────────────────────────────────────────────
 provider "openstack" {
-  user_name   = var.openstack_username
-  password    = var.openstack_password
   auth_url    = var.openstack_auth_url
-  tenant_name = var.openstack_project_name
+  user_name   = var.admin_username
+  password    = var.admin_password
+  tenant_name = var.admin_project
+  domain_name = var.admin_domain
   region      = var.openstack_region
   insecure    = true
 }
 
-resource "openstack_compute_instance_v2" "bastion" {
-  name            = "vm-bastion"
-  image_name      = "octavia-amphora-16.1-20200812.3.x86_64"
-  flavor_name     = "default"
-  security_groups = ["default"]
-  network { uuid = "4beb2534-efb5-44b7-b6e4-aa098b0c2f9e" }
-}
+# ──────────────────────────────────────────────
+# Local helpers
+# ──────────────────────────────────────────────
+locals {
+  all_users = concat(var.developers, var.leads)
 
-resource "openstack_compute_instance_v2" "lead" {
-  for_each        = toset(var.leads)
-  name            = "vm-lead-${each.value}"
-  image_name      = "octavia-amphora-16.1-20200812.3.x86_64"
-  flavor_name     = "default"
-  security_groups = ["default"]
-  network { uuid = "4beb2534-efb5-44b7-b6e4-aa098b0c2f9e" }
-}
-
-resource "openstack_compute_instance_v2" "moodle" {
-  for_each = merge([
+  # Moodle instances: 2 per developer
+  moodle_instances = merge([
     for dev in var.developers : {
-      "${dev}-1" = { dev_name = dev }
-      "${dev}-2" = { dev_name = dev }
+      "${dev}-1" = { developer = dev, index = 1 }
+      "${dev}-2" = { developer = dev, index = 2 }
     }
   ]...)
-  name            = "vm-moodle-${each.key}"
-  image_name      = "octavia-amphora-16.1-20200812.3.x86_64"
-  flavor_name     = "default-extra-disk"
-  security_groups = ["default"]
-  network { uuid = "4beb2534-efb5-44b7-b6e4-aa098b0c2f9e" }
-}
 
-output "done" { value = "Deployment complete" }
+  common_tags = {
+    project     = var.project_name
+    environment = var.environment
+    managed_by  = "terraform"
+  }
+}

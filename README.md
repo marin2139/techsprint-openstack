@@ -1,80 +1,129 @@
-# IRUO – OpenStack CLI Deployment (TechSprint Moodle okolina)
+# TechSprint — OpenStack Deployment
 
-OpenStack dio IRUO projekta (Red Hat OpenStack Platform 16.1 – Train release).
-Automatizirani deployment putem Bash skripte i OpenStack CLI-ja iz CSV datoteke
-s popisom korisnika: bastion/jump host, izolirane mreže po developeru,
-2 Moodle VM instance po developeru, Cinder data volumeni, security grupe
-i Keystone IAM (projekti, korisnici, role).
+Multi-tenant Moodle hosting environment on Red Hat OpenStack Platform (RHOSP 16.1).
 
-> Pokreće se **s controller0 noda** unutar Red Hat Academy CL110 laba,
-> jer je OpenStack API dostupan samo unutar lab okruženja.
+## Architecture
 
-## Arhitektura
+```
+                    ┌─────────────────────────────────────────────┐
+                    │              External Network               │
+                    └───────────┬─────────────┬───────────────────┘
+                           Floating IP   Floating IP
+                                │             │
+                    ┌───────────┴─────────────┴───────────────────┐
+                    │         vnet-mgmt (10.0.0.0/24)             │
+                    │  ┌──────────┐  ┌──────────────────────┐     │
+                    │  │ Bastion  │  │ Lead (ana_anic)       │     │
+                    │  │ sg-bast. │  │ sg-lead, multi-NIC    │     │
+                    │  └──────────┘  └──────────────────────┘     │
+                    └─────────────────────────────────────────────┘
+                                         │ Router
+              ┌──────────────────────────┼──────────────────────────┐
+              │                          │                          │
+  ┌───────────┴───────────┐  ┌───────────┴───────────┐             │
+  │ vnet-luka_lukic       │  │ vnet-marko_marinkovic  │           ...
+  │ 10.100.0.0/24         │  │ 10.101.0.0/24          │
+  │                       │  │                        │
+  │ ┌─── Octavia LB ───┐ │  │ ┌─── Octavia LB ───┐  │
+  │ │  lb-moodle-luka   │ │  │ │  lb-moodle-marko  │  │
+  │ └───┬──────────┬────┘ │  │ └───┬──────────┬────┘  │
+  │     │          │      │  │     │          │       │
+  │ ┌───┴───┐ ┌───┴───┐  │  │ ┌───┴───┐ ┌───┴───┐   │
+  │ │Moodle │ │Moodle │  │  │ │Moodle │ │Moodle │   │
+  │ │  -1   │ │  -2   │  │  │ │  -1   │ │  -2   │   │
+  │ │+Cinder│ │+Cinder│  │  │ │+Cinder│ │+Cinder│   │
+  │ └───────┘ └───────┘  │  │ └───────┘ └───────┘   │
+  └───────────────────────┘  └────────────────────────┘
+```
 
-| Komponenta | Detalji |
-|---|---|
-| **Compute** | 6 VM-ova: 1 bastion, 1 lead, 4 Moodle (2 po developeru) |
-| **Network** | production-network1 + izolirane vnet-* mreže po developeru |
-| **Storage** | 4× Cinder volume (10 GB), attached na Moodle VM-ove |
-| **Security** | sg-bastion (SSH), sg-developer (HTTP/HTTPS/SSH), sg-lead (full) |
-| **IAM** | Keystone projekt `techsprint`, 3 korisnika (1 lead + 2 dev) |
-| **Image** | octavia-amphora-16.1-20200812.3.x86_64 |
-| **Flavors** | default (2vCPU/2GB/10GB), default-extra-disk (+5GB ephemeral) |
+## Components
 
-## Preduvjeti
+| Component         | Technology                          | Purpose                              |
+|-------------------|-------------------------------------|--------------------------------------|
+| IaC               | Terraform (OpenStack provider)      | All infrastructure as code           |
+| Configuration     | Ansible (roles-based)               | VM provisioning and app deployment   |
+| Identity          | Keystone projects, groups, roles    | Tenant isolation + RBAC              |
+| Networking        | Neutron per-developer networks      | Network isolation between tenants    |
+| Load Balancing    | Octavia LB per developer            | HA across Moodle instance pair       |
+| Block Storage     | Cinder volumes                      | Persistent data disks for Moodle     |
+| Object Storage    | Swift containers                    | Backups + uploaded assets            |
+| File Storage      | Manila (optional, see storage.tf)   | Shared moodledata for HA pair        |
+| Compute           | Nova instances                      | Bastion, Lead, Moodle VMs            |
 
-- Red Hat Academy CL110 lab okruženje (RHOSP 16.1)
-- Pristup controller0 konzoli
-- OpenStack kredencijali (`/home/heat-admin/overcloudrc`)
+## Prerequisites
 
-## Pokretanje
+- RHOSP 16.1 access with admin credentials
+- Terraform ≥ 1.3
+- Ansible ≥ 2.9
+- A CentOS 8 Stream or RHEL 8 Glance image
+- A flavor with ≥ 4 GB RAM for Moodle VMs
+
+## Quick Start
 
 ```bash
-# Na controller0
-source /home/heat-admin/overcloudrc
+# 1. Configure
+cd terraform/
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your RHOSP values
 
-# Kloniranje repozitorija
-cd /tmp
-git clone https://github.com/marin2139/techsprint-openstack.git
-cd techsprint-openstack
+# 2. Deploy everything
+cd ../scripts/
+chmod +x deploy.sh
+./deploy.sh
 
-# Deploy
-chmod +x deploy.sh cleanup.sh
-./deploy.sh techsprint_users.csv
+# 3. Verify
+ssh -i ssh_key cloud-user@<bastion-floating-ip>
 ```
 
-## Čišćenje
+## Manual Steps
 
 ```bash
-./cleanup.sh
+# Terraform only
+cd terraform/
+terraform init
+terraform plan
+terraform apply
+
+# Generate Ansible inventory from Terraform outputs
+terraform output -raw ansible_inventory > ../ansible/inventory.ini
+
+# Ansible only
+cd ../ansible/
+ansible-playbook site.yml
 ```
 
-Briše sve TechSprint resurse (VM-ove, volumene, mreže, security grupe,
-Keystone korisnike i projekt) i vraća lab u čisto stanje.
+## Cleanup
 
-## Struktura repozitorija
+```bash
+./scripts/cleanup.sh
+# or: cd terraform/ && terraform destroy
+```
+
+## File Structure
 
 ```
-├── deploy.sh                 # Glavna deployment skripta
-├── cleanup.sh                # Skripta za brisanje svih resursa
-├── techsprint_users.csv      # CSV s korisnicima (ime;prezime;uloga)
+├── terraform/
+│   ├── main.tf              # Provider, locals
+│   ├── variables.tf         # All variables
+│   ├── identity.tf          # Keystone: projects, groups, users, roles
+│   ├── networking.tf        # Networks, subnets, router, SGs, floating IPs
+│   ├── compute.tf           # Bastion, Lead, Moodle VMs
+│   ├── storage.tf           # Cinder volumes, Swift containers, Manila
+│   ├── loadbalancer.tf      # Octavia LB per developer
+│   ├── outputs.tf           # IPs, inventory generation
+│   └── terraform.tfvars.example
+├── ansible/
+│   ├── ansible.cfg
+│   ├── site.yml
+│   └── roles/
+│       ├── common/          # Base packages, firewall
+│       ├── bastion/         # Jump host config
+│       ├── lead/            # Admin tools, SSH to all VMs
+│       └── moodle/          # PHP, Apache, MariaDB, Moodle, volume mount
+├── scripts/
+│   ├── deploy.sh            # Full deploy (TF + Ansible)
+│   └── cleanup.sh           # Destroy all
+├── ssh_key / ssh_key.pub
+├── techsprint_users.csv
 └── README.md
 ```
-
-## CSV format
-
-```csv
-ime;prezime;uloga
-Ana;Anic;devops_lead
-Luka;Lukic;developer
-Marko;Marinkovic;developer
-```
-
-## Napomena
-
-Deployment koristi OpenStack CLI umjesto Terraforma zbog ograničenja
-Red Hat Academy lab okruženja (nestabilnost Neutron API-ja pri paralelnim
-Terraform pozivima). Bash skripta izvršava pozive sekvencijalno što je
-pouzdanije za ovaj tip laba.
-
-Kredencijali se učitavaju iz `overcloudrc` fajla i ne idu na GitHub.
