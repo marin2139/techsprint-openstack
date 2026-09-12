@@ -1,0 +1,36 @@
+global
+    log         127.0.0.1 local2
+    maxconn     4000
+    daemon
+
+defaults
+    mode                    http
+    log                     global
+    option                  httplog
+    option                  dontlognull
+    option                  redispatch
+    retries                 3
+    timeout http-request    10s
+    timeout queue           1m
+    timeout connect         10s
+    timeout client          1m
+    timeout server          1m
+    timeout http-keep-alive 10s
+    timeout check           10s
+
+frontend moodle_front
+    bind *:80
+    default_backend moodle_back
+
+backend moodle_back
+    balance roundrobin
+    option httpchk GET /
+{% for host in groups['moodle'] %}
+    server {{ host }} {{ hostvars[host]['ansible_host'] }}:80 check
+{% endfor %}
+
+listen stats
+    bind *:8404
+    stats enable
+    stats uri /stats
+    stats refresh 10s

@@ -11,6 +11,15 @@ vm-lead-${name} ansible_host=${ip}
 vm-moodle-${name} ansible_host=${ip}
 %{ endfor ~}
 
+%{ for dev in developers ~}
+[moodle_${dev}]
+%{ for name, ip in moodle_ips ~}
+%{ if can(regex("^${dev}-", name)) ~}
+vm-moodle-${name} ansible_host=${ip}
+%{ endif ~}
+%{ endfor ~}
+%{ endfor ~}
+
 [all:vars]
 ansible_user=cloud-user
 ansible_ssh_private_key_file=${ssh_key_path}

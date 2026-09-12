@@ -20,3 +20,46 @@
     owner: cloud-user
     group: cloud-user
     mode: "0600"
+
+# ──────────────────────────────────────────────
+# HAProxy — replaces Octavia (not functional on this lab)
+# Single frontend/backend on the bastion, round-robin across all
+# Moodle instances, HTTP health check.
+# ──────────────────────────────────────────────
+- name: Install HAProxy
+  dnf:
+    name: haproxy
+    state: present
+
+- name: Allow HAProxy to connect out to backend servers (SELinux)
+  seboolean:
+    name: haproxy_connect_any
+    state: true
+    persistent: true
+  ignore_errors: true
+
+- name: Deploy HAProxy configuration
+  template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart haproxy
+
+- name: Allow HTTP + stats port through firewall
+  firewalld:
+    port: "{{ item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop:
+    - "80/tcp"
+    - "8404/tcp"
+  ignore_errors: true
+
+- name: Enable and start HAProxy
+  systemd:
+    name: haproxy
+    enabled: true
+    state: started

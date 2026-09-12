@@ -63,21 +63,21 @@ variable "external_network_id" {
 # Image & Flavor
 # ──────────────────────────────────────────────
 variable "image_name" {
-  description = "Glance image for all VMs (CentOS 8 / RHEL 8)"
+  description = "Glance image for all VMs (RHEL 8) — NOT octavia-amphora"
   type        = string
-  default     = "centos8-stream"
+  default     = "rhel8"
 }
 
 variable "flavor_bastion" {
-  description = "Flavor for bastion / lead VMs (≥2 GB RAM)"
+  description = "Flavor for bastion / lead VMs"
   type        = string
-  default     = "m1.small"
+  default     = "default"
 }
 
 variable "flavor_moodle" {
-  description = "Flavor for Moodle VMs (≥4 GB RAM as required)"
+  description = "Flavor for Moodle VMs (≥4 GB RAM as required) — custom flavor, must exist on the lab (openstack flavor create m1.moodle --ram 4096 --disk 20 --vcpus 2)"
   type        = string
-  default     = "m1.medium"
+  default     = "m1.moodle"
 }
 
 # ──────────────────────────────────────────────
@@ -109,6 +109,12 @@ variable "mgmt_cidr" {
   description = "CIDR for management network"
   type        = string
   default     = "10.0.0.0/24"
+}
+
+variable "admin_ip_cidr" {
+  description = "Admin's own public IP (as /32) allowed direct SSH to the Lead VM from the internet. REPLACE with your actual public IP before applying."
+  type        = string
+  default     = "203.0.113.1/32"
 }
 
 variable "dev_cidr_prefix" {

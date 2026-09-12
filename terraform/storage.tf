@@ -42,6 +42,13 @@ resource "openstack_objectstorage_container_v1" "moodle_assets" {
   for_each = toset(var.developers)
   name     = "${var.project_name}-assets-${each.value}"
 
+  # Containers physically live in the admin Swift account (provider auths
+  # as admin). This ACL grants the developer's own project read/write
+  # access to its own container via an explicit --os-storage-url call,
+  # since the developer otherwise has no visibility into the admin account.
+  container_read  = "${openstack_identity_project_v3.developer[each.value].id}:*"
+  container_write = "${openstack_identity_project_v3.developer[each.value].id}:*"
+
   metadata = {
     project     = var.project_name
     environment = var.environment

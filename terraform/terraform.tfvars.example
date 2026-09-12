@@ -13,12 +13,13 @@ admin_domain       = "Default"
 # External/provider network UUID (for floating IPs + router gateway)
 external_network_id = "4beb2534-efb5-44b7-b6e4-aa098b0c2f9e"
 
-# Image — use a proper CentOS/RHEL image, NOT octavia-amphora
-image_name = "centos8-stream"
+# Image — RHEL 8, NOT octavia-amphora
+image_name = "rhel8"
 
-# Flavors — moodle needs ≥4 GB RAM
-flavor_bastion = "m1.small"
-flavor_moodle  = "m1.medium"
+# Flavors — moodle needs ≥4 GB RAM (m1.moodle is a custom flavor,
+# create it first: openstack flavor create m1.moodle --ram 4096 --disk 20 --vcpus 2)
+flavor_bastion = "default"
+flavor_moodle  = "m1.moodle"
 
 # Users (from CSV)
 developers = ["luka_lukic", "marko_marinkovic"]
@@ -29,6 +30,10 @@ default_user_password = "TechSprint2026!"
 # Networking
 mgmt_cidr        = "10.0.0.0/24"
 dev_cidr_prefix  = 100
+
+# Your own public IP (as /32) — the only address allowed direct SSH
+# to the Lead VM from the internet. Find it with: curl ifconfig.me
+admin_ip_cidr = "203.0.113.1/32"
 
 # Storage
 cinder_volume_size    = 10

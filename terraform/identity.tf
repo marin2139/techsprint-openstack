@@ -55,15 +55,19 @@ resource "openstack_identity_user_v3" "developer" {
 
 # ──────────────────────────────────────────────
 # 5. Group membership
+#    openstack_identity_group_membership_v3 does not exist in the
+#    current provider version — membership is defined per-user instead.
 # ──────────────────────────────────────────────
-resource "openstack_identity_group_membership_v3" "leads" {
-  group = openstack_identity_group_v3.leads.id
-  users = [for u in openstack_identity_user_v3.lead : u.id]
+resource "openstack_identity_user_membership_v3" "leads" {
+  for_each = toset(var.leads)
+  user_id  = openstack_identity_user_v3.lead[each.value].id
+  group_id = openstack_identity_group_v3.leads.id
 }
 
-resource "openstack_identity_group_membership_v3" "developers" {
-  group = openstack_identity_group_v3.developers.id
-  users = [for u in openstack_identity_user_v3.developer : u.id]
+resource "openstack_identity_user_membership_v3" "developers" {
+  for_each = toset(var.developers)
+  user_id  = openstack_identity_user_v3.developer[each.value].id
+  group_id = openstack_identity_group_v3.developers.id
 }
 
 # ──────────────────────────────────────────────
@@ -79,6 +83,10 @@ data "openstack_identity_role_v3" "member" {
 
 data "openstack_identity_role_v3" "reader" {
   name = "reader"
+}
+
+data "openstack_identity_role_v3" "swiftoperator" {
+  name = "swiftoperator"
 }
 
 # ──────────────────────────────────────────────
@@ -106,4 +114,13 @@ resource "openstack_identity_role_assignment_v3" "dev_own_member" {
   user_id    = openstack_identity_user_v3.developer[each.value].id
   project_id = openstack_identity_project_v3.developer[each.value].id
   role_id    = data.openstack_identity_role_v3.member.id
+}
+
+# Each developer also gets swiftoperator on their own project, for real
+# Swift API access to their own container (not just Horizon/member access)
+resource "openstack_identity_role_assignment_v3" "dev_own_swiftoperator" {
+  for_each   = toset(var.developers)
+  user_id    = openstack_identity_user_v3.developer[each.value].id
+  project_id = openstack_identity_project_v3.developer[each.value].id
+  role_id    = data.openstack_identity_role_v3.swiftoperator.id
 }

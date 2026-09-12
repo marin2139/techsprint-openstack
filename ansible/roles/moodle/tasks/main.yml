@@ -9,17 +9,22 @@
 # ──────────────────────────────────────────────
 # 1. Cinder volume — format & mount
 # ──────────────────────────────────────────────
+- name: Install XFS tools
+  dnf:
+    name: xfsprogs
+    state: present
+
 - name: Wait for data volume device
   wait_for:
-    path: /dev/vdb
+    path: /dev/vdc
     timeout: 60
   ignore_errors: true
 
-- name: Create filesystem on data volume
+- name: Create XFS filesystem on data volume
   filesystem:
-    fstype: ext4
-    dev: /dev/vdb
-  when: ansible_devices.vdb is defined
+    fstype: xfs
+    dev: /dev/vdc
+  when: ansible_devices.vdc is defined
   ignore_errors: true
 
 - name: Create /data mount point
@@ -28,14 +33,14 @@
     state: directory
     mode: "0755"
 
-- name: Mount Cinder data volume
+- name: Mount Cinder data volume (persists across reboots via /etc/fstab)
   mount:
     path: /data
-    src: /dev/vdb
-    fstype: ext4
+    src: /dev/vdc
+    fstype: xfs
     state: mounted
-    opts: defaults,nofail
-  when: ansible_devices.vdb is defined
+    opts: defaults
+  when: ansible_devices.vdc is defined
   ignore_errors: true
 
 # ──────────────────────────────────────────────

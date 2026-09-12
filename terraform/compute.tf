@@ -47,6 +47,10 @@ resource "openstack_compute_instance_v2" "lead" {
     }
   }
 
+  # Required for cloud-init to inject the SSH key on isolated developer
+  # networks (no metadata service reachable there without it).
+  config_drive = true
+
   metadata = merge(local.common_tags, {
     role = "lead"
     user = each.value
@@ -73,6 +77,10 @@ resource "openstack_compute_instance_v2" "moodle" {
   network {
     uuid = openstack_networking_network_v2.developer[each.value.developer].id
   }
+
+  # Required for cloud-init to inject the SSH key on isolated developer
+  # networks (no metadata service reachable there without it).
+  config_drive = true
 
   metadata = merge(local.common_tags, {
     role      = "moodle"

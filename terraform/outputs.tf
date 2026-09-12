@@ -27,10 +27,9 @@ output "moodle_private_ips" {
   value       = { for k, v in openstack_compute_instance_v2.moodle : k => v.access_ip_v4 }
 }
 
-output "lb_vip_addresses" {
-  description = "Octavia LB VIP addresses per developer"
-  value       = { for k, v in openstack_lb_loadbalancer_v2.moodle : k => v.vip_address }
-}
+# Octavia is not deployed on this lab (see terraform/loadbalancer.tf) —
+# load balancing is HAProxy on the bastion instead, configured by
+# ansible/roles/bastion. No LB VIP output is needed for that.
 
 output "swift_containers" {
   description = "Swift container names"
